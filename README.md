@@ -6,7 +6,7 @@
 - frontend: Frontend app
 - rag: RAG template
 - docker: Docker setup
-- docs: Notes and presentation
+
 
 ## Team Workflow
 
