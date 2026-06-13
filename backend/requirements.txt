@@ -11,3 +11,4 @@ langchain-openai
 langchain-text-splitters
 langchain-chroma
 pypdf
+ultralytics
