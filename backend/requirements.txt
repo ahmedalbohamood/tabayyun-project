@@ -12,3 +12,6 @@ langchain-text-splitters
 langchain-chroma
 pypdf
 ultralytics
+tiktoken
+chromadb
+httpx

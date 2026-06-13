@@ -2,7 +2,7 @@ import os
 import shutil
 from fastapi import APIRouter, UploadFile, File
 
-from services.posture_service import check_posture
+from app.services.posture_service import check_posture
 
 router = APIRouter(
     prefix="/api",

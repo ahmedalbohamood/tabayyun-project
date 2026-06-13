@@ -1,9 +1,9 @@
 import shutil
 from fastapi import APIRouter, UploadFile, File
 
-from schemas.request_models import PromptRequest
-from services.rag_service import ingest_pdf, search
-from services.llm_service import ask
+from app.schemas.request_models import PromptRequest
+from app.services.rag_service import ingest_pdf, search
+from app.services.llm_service import ask
 
 router = APIRouter(
     prefix="/api",

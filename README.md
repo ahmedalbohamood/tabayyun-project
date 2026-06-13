@@ -6,6 +6,7 @@
 - frontend: Frontend app
 - rag: RAG template
 - docker: Docker setup
+- chatbot: AI chatbot template
 
 
 ## Team Workflow
