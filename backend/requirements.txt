@@ -15,3 +15,4 @@ ultralytics
 tiktoken
 chromadb
 httpx
+sqlalchemy
