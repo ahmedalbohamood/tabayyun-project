@@ -50,6 +50,10 @@ class ReportResponse(BaseModel):
     readiness_reasoning: Optional[str] = None
     system_recommendation: Optional[str] = None
 
+    # NEW
+    legal_basis: Optional[str] = None
+    document_assessment: Optional[str] = None
+
     extracted_evidence: list[str] = []
     mentioned_entities: list[str] = []
     mentioned_people: list[str] = []
