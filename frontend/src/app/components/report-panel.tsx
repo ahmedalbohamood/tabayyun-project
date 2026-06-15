@@ -160,17 +160,6 @@ export function ReportPanel({ report, onClose, lang }: ReportPanelProps) {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <button className="py-3 rounded-xl text-sm transition-all hover:opacity-90"
-              style={{ background: '#e8f0eb', color: '#005c2e', border: '1px solid rgba(0,92,46,0.2)', fontWeight: 600 }}>
-              {tr.assignInvestigator}
-            </button>
-            <button className="py-3 rounded-xl text-sm transition-all hover:opacity-90"
-              style={{ background: 'linear-gradient(135deg, #005c2e, #00894a)', color: '#ffffff', fontWeight: 600 }}>
-              {tr.openInvestigation}
-            </button>
-          </div>
         </div>
       </div>
     </div>
