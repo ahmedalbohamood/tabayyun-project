@@ -1,13 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
-  Search, Filter, TrendingUp, AlertCircle, BarChart2, ChevronDown,
+  Search, Filter, AlertCircle, BarChart2, ChevronDown,
   FileWarning, Inbox, Clock, CheckCheck, Activity, ChevronLeft,
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { mockReports, monthlyData, typeDistribution, type Report } from './mock-data';
+import { monthlyData, typeDistribution, type Report } from './mock-data';
 import { ReportPanel } from './report-panel';
 import { translations, type Lang } from '../translations';
 
@@ -23,7 +23,76 @@ const statusConfig: Record<string, { bg: string; color: string }> = {
   'قيد المراجعة': { bg: 'rgba(142,68,173,0.12)', color: '#9b59b6' },
   'مغلق': { bg: 'rgba(107,114,128,0.12)', color: '#9ca3af' },
   'محوّل': { bg: 'rgba(0,180,80,0.12)', color: '#2ecc71' },
+  'يتطلب تحقيقاً عاجلاً': { bg: 'rgba(192,57,43,0.12)', color: '#e74c3c' },
+  'معالجة روتينية': { bg: 'rgba(39,174,96,0.12)', color: '#2ecc71' },
 };
+
+type ApiReport = {
+  id: number;
+  report_number: string;
+  title: string;
+  description: string;
+  full_name?: string | null;
+  is_anonymous: boolean;
+  user_selected_category?: string | null;
+  ai_category?: string | null;
+  government_entity?: string | null;
+  city?: string | null;
+  attachment_path?: string | null;
+  readiness_score: number;
+  priority?: string | null;
+  status?: string | null;
+  analysis_summary?: string | null;
+  system_recommendation?: string | null;
+  extracted_evidence: string[];
+  mentioned_entities: string[];
+  important_dates: string[];
+  financial_amounts: string[];
+  priority_reasons: string[];
+  created_at: string;
+};
+
+function mapPriority(priority?: string | null): Report['priority'] {
+  if (priority === 'عالية') return 'high';
+  if (priority === 'متوسطة') return 'medium';
+  return 'low';
+}
+
+function mapRecommendation(value?: string | null): Report['recommendation'] {
+  if (value === 'يتطلب تحقيقاً عاجلاً') return 'يتطلب تحقيقاً عاجلاً';
+  if (value === 'معالجة روتينية') return 'المعلومات غير كافية';
+  return 'يحتاج إلى مراجعة إضافية';
+}
+
+function formatDate(value?: string) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('ar-SA');
+}
+
+function toDashboardReport(r: ApiReport): Report {
+  return {
+    id: r.report_number,
+    type: r.ai_category || r.user_selected_category || 'غير واضح',
+    credibility: r.readiness_score || 0,
+    priority: mapPriority(r.priority),
+    status: (r.status as Report['status']) || 'جديد',
+    date: formatDate(r.created_at),
+    entity: r.government_entity || 'غير محدد',
+    city: r.city || 'غير محدد',
+    description: r.description,
+    submitter: r.is_anonymous ? 'مجهول' : (r.full_name || 'غير محدد'),
+    attachments: r.attachment_path ? 1 : 0,
+    aiSummary: r.analysis_summary || 'لا يوجد ملخص متاح.',
+    evidence: r.extracted_evidence || [],
+    entities: r.mentioned_entities || [],
+    dates: r.important_dates || [],
+    amounts: r.financial_amounts || [],
+    factors: r.priority_reasons || [],
+    recommendation: mapRecommendation(r.system_recommendation || r.status),
+  };
+}
 
 function StatCard({ label, value, icon, color, sub }: { label: string; value: number; icon: React.ReactNode; color: string; sub?: string }) {
   return (
@@ -58,11 +127,40 @@ const LightTooltip = ({ active, payload, label }: any) => {
 
 export function InvestigatorDashboard({ lang }: { lang: Lang }) {
   const tr = translations[lang];
+
+  const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState(tr.filterAll);
   const [priorityFilter, setPriorityFilter] = useState(tr.filterAll);
   const [showCharts, setShowCharts] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    const loadReports = async () => {
+      setLoading(true);
+      setLoadError('');
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/reports');
+
+        if (!response.ok) {
+          throw new Error('Failed to load reports');
+        }
+
+        const data: ApiReport[] = await response.json();
+        setReports(data.map(toDashboardReport));
+      } catch (error) {
+        console.error(error);
+        setLoadError('تعذر تحميل البلاغات من الباك إند.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadReports();
+  }, []);
 
   const translateType = (type: string) => tr.typeNames?.[type] ?? type;
   const translateEntity = (entity: string) => tr.entityNames?.[entity] ?? entity;
@@ -82,30 +180,39 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
   };
 
   const filtered = useMemo(() => {
-    return mockReports.filter(r => {
+    return reports.filter(r => {
       const displayType = translateType(r.type);
       const displayEntity = translateEntity(r.entity);
-      const matchSearch = !search || r.id.includes(search) || displayType.includes(search) || displayEntity.includes(search) || r.type.includes(search) || r.entity.includes(search);
-      const matchType = typeFilter === tr.filterAll || displayType === typeFilter;
-      const matchPriority = priorityFilter === tr.filterAll ||
+
+      const matchSearch =
+        !search ||
+        r.id.includes(search) ||
+        displayType.includes(search) ||
+        displayEntity.includes(search) ||
+        r.type.includes(search) ||
+        r.entity.includes(search);
+
+      const matchType = typeFilter === tr.filterAll || displayType === typeFilter || r.type === typeFilter;
+
+      const matchPriority =
+        priorityFilter === tr.filterAll ||
         (priorityFilter === tr.filterHigh && r.priority === 'high') ||
         (priorityFilter === tr.filterMedium && r.priority === 'medium') ||
         (priorityFilter === tr.filterLow && r.priority === 'low');
+
       return matchSearch && matchType && matchPriority;
     });
-  }, [search, typeFilter, priorityFilter, tr]);
+  }, [reports, search, typeFilter, priorityFilter, tr]);
 
   const stats = {
-    total: mockReports.length,
-    high: mockReports.filter(r => r.priority === 'high').length,
-    medium: mockReports.filter(r => r.priority === 'medium').length,
-    low: mockReports.filter(r => r.priority === 'low').length,
+    total: reports.length,
+    high: reports.filter(r => r.priority === 'high').length,
+    medium: reports.filter(r => r.priority === 'medium').length,
+    low: reports.filter(r => r.priority === 'low').length,
   };
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #f0f4f1 0%, #e8f0eb 60%, #f5f8f6 100%)' }}>
-
-      {/* Header */}
       <header className="sticky top-0 z-20 px-6 py-4 backdrop-blur-sm"
         style={{ background: 'rgba(255,255,255,0.92)', borderBottom: '1px solid rgba(0,92,46,0.12)' }}>
         <div className="max-w-screen-xl mx-auto flex items-center justify-between">
@@ -128,8 +235,18 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
       </header>
 
       <div className="max-w-screen-xl mx-auto px-6 py-6 space-y-6">
+        {loadError && (
+          <div className="rounded-xl p-4 text-right bg-white" style={{ border: '1px solid rgba(192,57,43,0.25)', color: '#c0392b' }}>
+            {loadError}
+          </div>
+        )}
 
-        {/* Stat Cards */}
+        {loading && (
+          <div className="rounded-xl p-4 text-right bg-white" style={{ border: '1px solid rgba(0,92,46,0.12)', color: '#005c2e' }}>
+            جاري تحميل البلاغات...
+          </div>
+        )}
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label={tr.totalReports} value={stats.total} icon={<Inbox size={16} />} color="#3b82f6" sub={tr.thisMonth} />
           <StatCard label={tr.highPriority} value={stats.high} icon={<AlertCircle size={16} />} color="#e74c3c" sub={tr.highPrioritySub} />
@@ -137,7 +254,6 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
           <StatCard label={tr.lowPriority} value={stats.low} icon={<CheckCheck size={16} />} color="#2ecc71" sub={tr.lowPrioritySub} />
         </div>
 
-        {/* Charts */}
         <div>
           <button
             onClick={() => setShowCharts(v => !v)}
@@ -150,7 +266,6 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
 
           {showCharts && (
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-              {/* Bar chart */}
               <div className="lg:col-span-3 rounded-2xl p-5 bg-white" style={{ border: '1px solid rgba(0,92,46,0.1)', boxShadow: '0 2px 20px rgba(0,92,46,0.05)' }}>
                 <p className="text-sm text-right mb-4" style={{ color: '#1a2e20', fontWeight: 600 }}>{tr.monthlyChart}</p>
                 <ResponsiveContainer width="100%" height={200}>
@@ -166,7 +281,6 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Pie chart */}
               <div className="lg:col-span-2 rounded-2xl p-5 bg-white" style={{ border: '1px solid rgba(0,92,46,0.1)', boxShadow: '0 2px 20px rgba(0,92,46,0.05)' }}>
                 <p className="text-sm text-right mb-4" style={{ color: '#1a2e20', fontWeight: 600 }}>{tr.typeChart}</p>
                 <ResponsiveContainer width="100%" height={120}>
@@ -190,22 +304,12 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
           )}
         </div>
 
-        {/* Search & Filter */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
           <div className="flex gap-2 flex-wrap">
-            <FilterDropdown
-              label={tr.filterType}
-              options={suspicionTypes}
-              value={typeFilter}
-              onChange={v => setTypeFilter(v)}
-            />
-            <FilterDropdown
-              label={tr.filterPriority}
-              options={priorityFilters}
-              value={priorityFilter}
-              onChange={v => setPriorityFilter(v)}
-            />
+            <FilterDropdown label={tr.filterType} options={suspicionTypes} value={typeFilter} onChange={v => setTypeFilter(v)} />
+            <FilterDropdown label={tr.filterPriority} options={priorityFilters} value={priorityFilter} onChange={v => setPriorityFilter(v)} />
           </div>
+
           <div className="relative flex-1 w-full sm:w-auto">
             <input
               type="text"
@@ -217,13 +321,13 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
             />
             <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: '#5a7a62' }} />
           </div>
+
           <div className="flex items-center gap-2 text-xs" style={{ color: '#5a7a62', whiteSpace: 'nowrap' }}>
             <FileWarning size={13} />
             <span>{tr.reportCount(filtered.length)}</span>
           </div>
         </div>
 
-        {/* Table */}
         <div className="rounded-2xl overflow-hidden bg-white" style={{ border: '1px solid rgba(0,92,46,0.1)', boxShadow: '0 2px 20px rgba(0,92,46,0.05)' }}>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -234,11 +338,13 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                   ))}
                 </tr>
               </thead>
+
               <tbody>
                 {filtered.map((report, idx) => {
                   const p = priorityConfig[report.priority];
                   const pLabel = priorityLabels[report.priority];
                   const s = statusConfig[report.status] ?? { bg: 'rgba(107,114,128,0.12)', color: '#9ca3af' };
+
                   return (
                     <tr
                       key={report.id}
@@ -253,12 +359,15 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                       <td className="px-4 py-3.5">
                         <span className="text-xs font-mono" style={{ color: '#005c2e' }}>{report.id}</span>
                       </td>
+
                       <td className="px-4 py-3.5 text-right">
                         <span className="text-sm" style={{ color: '#1a2e20', fontWeight: 500 }}>{translateType(report.type)}</span>
                       </td>
+
                       <td className="px-4 py-3.5 text-right">
                         <span className="text-xs" style={{ color: '#3d6b47' }}>{translateEntity(report.entity)}</span>
                       </td>
+
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2 justify-end">
                           <span className="text-sm" style={{ color: report.credibility >= 80 ? '#2ecc71' : report.credibility >= 60 ? '#f39c12' : '#e74c3c', fontWeight: 700 }}>
@@ -272,20 +381,24 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                           </div>
                         </div>
                       </td>
+
                       <td className="px-4 py-3.5 text-right">
                         <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: p.bg, color: p.color, fontWeight: 600 }}>
                           <span className="inline-block w-1.5 h-1.5 rounded-full ml-1.5" style={{ background: p.dot }} />
                           {pLabel}
                         </span>
                       </td>
+
                       <td className="px-4 py-3.5 text-right">
                         <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: s.bg, color: s.color, fontWeight: 500 }}>
                           {translateStatus(report.status)}
                         </span>
                       </td>
+
                       <td className="px-4 py-3.5 text-right">
                         <span className="text-xs font-mono" style={{ color: '#5a7a62' }}>{report.date}</span>
                       </td>
+
                       <td className="px-4 py-3.5">
                         <ChevronLeft size={14} style={{ color: '#9ca3af' }} />
                       </td>
@@ -294,6 +407,7 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                 })}
               </tbody>
             </table>
+
             {filtered.length === 0 && (
               <div className="py-16 text-center" style={{ color: '#5a7a62' }}>
                 <Inbox size={32} className="mx-auto mb-3 opacity-40" />
@@ -303,16 +417,17 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
           </div>
         </div>
 
-        {/* Recent activity */}
         <div className="rounded-2xl p-5 bg-white" style={{ border: '1px solid rgba(0,92,46,0.1)', boxShadow: '0 2px 20px rgba(0,92,46,0.05)' }}>
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs" style={{ color: '#5a7a62' }}>{tr.lastUpdated}</span>
             <p className="text-sm text-right" style={{ color: '#1a2e20', fontWeight: 600 }}>{tr.recentLog}</p>
           </div>
+
           <div className="space-y-2">
-            {mockReports.slice(0, 5).map(r => {
+            {reports.slice(0, 5).map(r => {
               const p = priorityConfig[r.priority];
               const pLabel = priorityLabels[r.priority];
+
               return (
                 <div
                   key={r.id}
@@ -322,6 +437,7 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                     <ChevronLeft size={12} style={{ color: '#9ca3af' }} />
                     <span className="text-xs font-mono" style={{ color: '#5a7a62' }}>{r.date}</span>
                   </div>
+
                   <div className="flex items-center gap-3 text-right">
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: p.bg, color: p.color, fontWeight: 600 }}>{pLabel}</span>
                     <span className="text-xs" style={{ color: '#3d6b47' }}>{translateType(r.type)} — {translateEntity(r.entity)}</span>
@@ -330,6 +446,12 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
                 </div>
               );
             })}
+
+            {reports.length === 0 && !loading && (
+              <p className="text-sm text-center py-4" style={{ color: '#5a7a62' }}>
+                لا توجد بلاغات حقيقية بعد.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -342,7 +464,10 @@ export function InvestigatorDashboard({ lang }: { lang: Lang }) {
 }
 
 function FilterDropdown({ label, options, value, onChange }: {
-  label: string; options: string[]; value: string; onChange: (v: string) => void;
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
 }) {
   return (
     <div className="relative">
