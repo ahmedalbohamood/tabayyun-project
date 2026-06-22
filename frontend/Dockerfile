@@ -11,4 +11,4 @@ COPY . .
 
 EXPOSE 5173
 
-CMD ["pnpm", "run", "dev", "--", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "pnpm exec vite --host 0.0.0.0 --port ${PORT:-5173}"]
