@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -9,6 +9,17 @@ RUN pnpm install
 
 COPY . .
 
-EXPOSE 5173
+ARG VITE_API_URL=http://localhost:8000
+ENV VITE_API_URL=$VITE_API_URL
 
-CMD ["sh", "-c", "pnpm exec vite --host 0.0.0.0 --port ${PORT:-5173}"]
+RUN pnpm run build
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN npm install -g serve
+
+COPY --from=builder /app/dist ./dist
+
+CMD ["sh", "-c", "serve -s dist -l ${PORT:-3000}"]
