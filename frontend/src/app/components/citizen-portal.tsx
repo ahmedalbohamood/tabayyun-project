@@ -121,7 +121,7 @@ export function CitizenPortal({ lang }: { lang: Lang }) {
         payload.append('attachment', files[0].file);
       }
 
-      const response = await fetch('http://127.0.0.1:8000/api/reports', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'}/api/reports`, {
         method: 'POST',
         body: payload,
       });
